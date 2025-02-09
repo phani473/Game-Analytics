@@ -6,10 +6,18 @@ import warnings
 
 # Suppress pandas warnings about DBAPI2 connections
 warnings.filterwarnings("ignore", category=UserWarning, message="pandas only supports SQLAlchemy connectable.*")
+
 # Database connection
 def get_db_connection():
     conn = psycopg2.connect("dbname=tennis_db user=postgres password=Phani@1pk")
     return conn
+
+# Function to execute a selected query
+def execute_query(query):
+    conn = get_db_connection()
+    df = pd.read_sql(query, conn)
+    conn.close()
+    return df
 
 # Function to get all competitors from the database
 def get_competitors():
@@ -45,7 +53,7 @@ def get_summary_statistics():
     """
     summary = pd.read_sql(query, conn)
     conn.close()
-    return summary
+    return summary  #(total_competitors,total_countries,highest_points)
 
 # Function to get country-wise analysis
 def get_country_analysis():
@@ -93,7 +101,7 @@ def main():
 
     # Homepage Dashboard
     st.header("📊 Homepage Dashboard")
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3 = st.columns(3)  #(total_competitors,total_countries,highest_points)
     with col1:
         st.metric("Total Competitors", summary['total_competitors'][0])
     with col2:
@@ -138,8 +146,152 @@ def main():
     fig1 = px.bar(top_points, x='name', y='points', title="Top 10 Competitors by Points", color='points')
     st.plotly_chart(fig1, use_container_width=True)
 
-    fig2 = px.pie(country_analysis, names='country', values='total_competitors', title="Competitors Distribution by Country")
-    st.plotly_chart(fig2, use_container_width=True)
+    # Query Selection
+    st.sidebar.header("Task1 Custom Queries")
+    query_options = {
+        "List all competitions along with their category name": """
+            SELECT c.competition_name, cat.category_name
+            FROM Competitions c
+            JOIN Categories cat ON c.category_id = cat.category_id;
+        """,
+        "Count the number of competitions in each category": """
+            SELECT cat.category_name, COUNT(c.competition_id) AS competition_count
+            FROM Competitions c
+            JOIN Categories cat ON c.category_id = cat.category_id
+            GROUP BY cat.category_name;
+        """,
+        "Find all competitions of type 'doubles'": """
+            SELECT competition_name
+            FROM Competitions
+            WHERE type = 'doubles';
+        """,
+        "Get competitions that belong to a specific category (e.g., ITF Men)": """
+            SELECT competition_name
+            FROM Competitions c
+            JOIN Categories cat ON c.category_id = cat.category_id
+            WHERE cat.category_name = 'ITF Men';
+        """,
+        "Identify parent competitions and their sub-competitions": """
+            SELECT parent.competition_name AS parent_competition, sub.competition_name AS sub_competition
+            FROM Competitions sub
+            JOIN Competitions parent ON sub.parent_id = parent.competition_id;
+        """,
+        "Analyze the distribution of competition types by category": """
+            SELECT cat.category_name, c.type, COUNT(*) AS competition_count
+            FROM Competitions c
+            JOIN Categories cat ON c.category_id = cat.category_id
+            GROUP BY cat.category_name, c.type
+            ORDER BY cat.category_name, c.type;
+        """,
+        "List all competitions with no parent (top-level competitions)": """
+            SELECT competition_name
+            FROM Competitions
+            WHERE parent_id IS NULL;
+        """
+
+    }
+    selected_query = st.sidebar.selectbox("Select a Query", list(query_options.keys()))
+
+    if selected_query:
+        query = query_options[selected_query]
+        result_df = execute_query(query)
+        st.header(f"Task1 Query: {selected_query}")
+        st.dataframe(result_df, use_container_width=True)
+    
+
+    st.sidebar.header("Task2 Custom Queries")
+    query_options = {
+        "List all venues along with their associated complex name": """
+            SELECT v.venue_name, v.city_name, v.country_name, c.complex_name
+            FROM Venues v
+            JOIN Complexes c ON v.complex_id = c.complex_id;
+        """,
+        "Count the number of venues in each complex": """
+            SELECT v.complex_id, c.complex_name, COUNT(v.venue_id) AS venue_count
+            FROM Venues v
+            JOIN Complexes c ON v.complex_id = c.complex_id
+            GROUP BY v.complex_id, c.complex_name;
+        """,
+        "Get details of venues in a specific country (e.g., Chile)": """
+            SELECT * FROM Venues
+            WHERE country_name = 'Chile';
+        """,
+        "Identify all venues and their timezones": """
+            SELECT venue_name, timezone FROM Venues;
+        """,
+        "Find complexes that have more than one venue": """
+            SELECT v.complex_id, c.complex_name, COUNT(v.venue_id) AS venue_count
+            FROM Venues v
+            JOIN Complexes c ON v.complex_id = c.complex_id
+            GROUP BY v.complex_id, c.complex_name
+            HAVING COUNT(v.venue_id) > 1;
+        """,
+        "List venues grouped by country": """
+            SELECT country_name, ARRAY_AGG(venue_name) AS venues
+            FROM Venues
+            GROUP BY country_name;
+        """,
+        "Find all venues for a specific complex (e.g., Nacional)": """
+            SELECT v.venue_name, v.city_name, v.country_name
+            FROM Venues v
+            JOIN Complexes c ON v.complex_id = c.complex_id
+            WHERE c.complex_name = 'Nacional';
+        """
+    }
+    selected_query = st.sidebar.selectbox("Select a Query", list(query_options.keys()))
+
+    if selected_query:
+        query = query_options[selected_query]
+        result_df = execute_query(query)
+        st.header(f"Task2 Query: {selected_query}")
+        st.dataframe(result_df, use_container_width=True)
+
+    st.sidebar.header("Task3 Custom Queries")
+    query_options = {
+        "Get all competitors with their rank and points": """
+            SELECT c.name, r.rank, r.points 
+            FROM Competitors c
+            JOIN Competitor_Rankings r ON c.competitor_id = r.competitor_id;
+        """,
+        "Find competitors ranked in the top 5": """
+            SELECT c.name, r.rank, r.points
+            FROM Competitors c
+            JOIN Competitor_Rankings r ON c.competitor_id = r.competitor_id
+            WHERE r.rank <= 5;
+        """,
+        "List competitors with no rank movement (stable rank)": """
+            SELECT c.name, r.rank, r.points
+            FROM Competitors c
+            JOIN Competitor_Rankings r ON c.competitor_id = r.competitor_id
+            WHERE r.movement = 0;
+        """,
+        "Get the total points of competitors from a specific country (e.g., Croatia)": """
+            SELECT SUM(r.points) AS total_points
+            FROM Competitors c
+            JOIN Competitor_Rankings r ON c.competitor_id = r.competitor_id
+            WHERE c.country = 'Croatia';
+        """,
+        "Count the number of competitors per country": """
+            SELECT c.country, COUNT(*) AS competitor_count
+            FROM Competitors c
+            JOIN Competitor_Rankings r ON c.competitor_id = r.competitor_id
+            GROUP BY c.country;
+        """,
+        "Find competitors with the highest points in the current week": """
+            SELECT c.name, r.rank, r.points
+            FROM Competitors c
+            JOIN Competitor_Rankings r ON c.competitor_id = r.competitor_id
+            WHERE r.points = (SELECT MAX(points) FROM Competitor_Rankings);
+        """
+    }
+    selected_query = st.sidebar.selectbox("Select a Query", list(query_options.keys()))
+
+    if selected_query:
+        query = query_options[selected_query]
+        result_df = execute_query(query)
+        st.header(f"Task3 Query: {selected_query}")
+        st.dataframe(result_df, use_container_width=True)
+    
 
 if __name__ == "__main__":
     main()
